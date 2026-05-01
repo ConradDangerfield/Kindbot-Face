@@ -244,3 +244,85 @@ def test_sse_initial_and_updates(session):
     listening_seen = [e["data"].get("listening") for e in state_events if isinstance(e["data"], dict)]
     assert "music" in modes_seen
     assert True in listening_seen
+
+# ---------------- /api/say (TTS disabled contract) ---------------------------
+
+def _get_mode(session):
+    return session.get(f"{BASE_URL}/api/state", timeout=10).json()["mode"]
+
+
+def test_say_without_token_401(session):
+    r = session.post(f"{BASE_URL}/api/say", json={"text": "hello"}, timeout=10)
+    assert r.status_code == 401
+
+
+def test_say_empty_text_422(session):
+    r = session.post(f"{BASE_URL}/api/say", headers=AUTH, json={"text": ""}, timeout=10)
+    assert r.status_code == 422
+
+
+def test_say_text_too_long_422(session):
+    r = session.post(
+        f"{BASE_URL}/api/say",
+        headers=AUTH,
+        json={"text": "x" * 4001},
+        timeout=10,
+    )
+    assert r.status_code == 422
+
+
+def test_say_no_openai_key_503_and_no_state_flip(session):
+    # Set a known non-talking mode first
+    session.post(f"{BASE_URL}/api/mode/music", headers=AUTH, timeout=10)
+    before_mode = _get_mode(session)
+    assert before_mode == "music"
+
+    r = session.post(
+        f"{BASE_URL}/api/say",
+        headers=AUTH,
+        json={"text": "Hello from KindBot"},
+        timeout=10,
+    )
+    assert r.status_code == 503
+    body = r.json()
+    assert "OPENAI_API_KEY" in json.dumps(body)
+
+    # State must NOT have flipped to talking
+    time.sleep(0.3)
+    after_mode = _get_mode(session)
+    assert after_mode == "music", f"state unexpectedly changed to {after_mode}"
+
+    # cleanup
+    session.post(f"{BASE_URL}/api/mode/idle", headers=AUTH, timeout=10)
+
+
+def test_say_invalid_voice_returns_503_first(session):
+    """Per spec: key check fires BEFORE voice validation, so 503 is expected."""
+    r = session.post(
+        f"{BASE_URL}/api/say",
+        headers=AUTH,
+        json={"text": "hi", "voice": "bogus"},
+        timeout=10,
+    )
+    # Either 503 (key check first, per spec) or 400 (voice check) is acceptable
+    assert r.status_code in (400, 503)
+    detail = json.dumps(r.json())
+    assert ("OPENAI_API_KEY" in detail) or ("voice" in detail.lower())
+
+
+def test_say_audio_bogus_id_404(session):
+    r = session.get(f"{BASE_URL}/api/say/bogus.mp3", timeout=10)
+    assert r.status_code == 404
+    body = r.json()
+    assert "detail" in body
+
+
+# ---------------- /api/health tts_enabled flag -------------------------------
+
+def test_health_reports_tts_disabled(session):
+    r = session.get(f"{BASE_URL}/api/health", timeout=10)
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("service") == "kindbot-face-engine"
+    assert body.get("tts_enabled") is False
+

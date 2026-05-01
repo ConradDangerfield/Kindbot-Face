@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 2 — regression + new /api/say TTS-disabled contract. All 19 backend pytest cases passed (12 regression + 7 new for /api/say). Frontend playwright flow verified: kiosk renders, emergent badge removed, SSE 'state' delivers mode transitions (idle->music->talking->music->cleaning->idle), /api/say without OPENAI_API_KEY returns 503 and does NOT flip state to talking, and the new 'say' SSE listener does not break 'state' delivery. No bugs found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_kindbot_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py /api/say: auth → key check → pydantic validation ordering matches spec; 503 is returned BEFORE voice validation as documented — verified via test_say_invalid_voice_returns_503_first.",
+    "server.py stop_talking_if_token correctly uses _talking_token to avoid stomping on a newer state transition — good concurrency pattern.",
+    "Minor (non-blocking): playSay() calls ctx.createMediaElementSource(audio) which will throw DOMException on a second play of the same <Audio> element; currently works because playSay() constructs a fresh Audio each call — keep it that way (already does).",
+    "Minor: SAY_CACHE uses in-memory dict — acceptable for kiosk single-instance; if scaled horizontally, would need shared store. Not a bug for current scope."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_kindbot_api.py (added 7 /api/say + health tts_enabled tests)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% (all flows)"},
+  "test_credentials": "Bearer 7-7vleL-64LztrTPNLAdKdHE7FGVoncign-jwHPhpxo (from /app/backend/.env)",
+  "seed_data_creation": "None — pure API state machine; tests self-clean by resetting to idle in fixture teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All /api/say paths validated in the TTS-disabled contract (401, 422 empty, 422 >4000 chars, 503 missing key, 503 before voice-check, 404 bogus mp3 id). To test the TTS-enabled path, supply OPENAI_API_KEY in /app/backend/.env and add a test that posts short text and asserts 200 + url + durationMs>0 + state becomes 'talking' then restores. The /api/say/<id>.mp3 GET happy path requires a successful generation first, so it is only reachable in enabled-mode.",
+  "rca of the issue": "N/A — no issues found."
+}

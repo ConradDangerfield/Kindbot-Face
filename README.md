@@ -140,11 +140,12 @@ production Node.js server and the preview FastAPI server.
 
 ### Open endpoints (no auth)
 
-| Method | Path           | Purpose                                            |
-|--------|----------------|----------------------------------------------------|
-| GET    | `/api/health`  | Liveness — `{status:"ok"}` (used by Docker HEALTHCHECK)|
-| GET    | `/api/state`   | Snapshot — `{mode, listening}`                      |
-| GET    | `/api/stream`  | **Server-Sent Events** stream of state changes      |
+| Method | Path                | Purpose                                            |
+|--------|---------------------|----------------------------------------------------|
+| GET    | `/api/health`       | Liveness — `{status:"ok", tts_enabled:bool}`        |
+| GET    | `/api/state`        | Snapshot — `{mode, listening}`                      |
+| GET    | `/api/stream`       | **Server-Sent Events** stream (state + say events)  |
+| GET    | `/api/say/<id>.mp3` | Serves a generated TTS clip (id is unguessable)     |
 
 `/api/stream` events:
 ```
@@ -153,10 +154,15 @@ data: {"mode":"idle","listening":false}
 
 event: state
 data: {"mode":"music","listening":false}
+
+event: say
+data: {"id":"…","url":"/api/say/….mp3","durationMs":1840,"voice":"nova","model":"tts-1"}
 ```
 
-The kiosk client subscribes to this stream and applies every snapshot it
-receives. It auto-reconnects on disconnect (1.5s backoff).
+The kiosk subscribes to this stream, applies every state snapshot, and on
+`say` events plays the audio clip with **Web Audio API amplitude analysis**
+driving the mouth's `scaleY` for real lip-sync. The stream auto-reconnects
+on disconnect (1.5s backoff).
 
 ### Mutating endpoints (require `Authorization: Bearer <KINDBOT_API_TOKEN>`)
 
@@ -169,6 +175,46 @@ receives. It auto-reconnects on disconnect (1.5s backoff).
 | POST   | `/api/mode/talking/stop`         | restores prev_mode                            |
 | POST   | `/api/mode/listening/start`      | `listening = true`                            |
 | POST   | `/api/mode/listening/stop`       | `listening = false`                           |
+| POST   | `/api/say`                       | TTS lip-sync — see below                      |
+
+#### `POST /api/say` — TTS lip-sync (requires `OPENAI_API_KEY`)
+
+Request body:
+```json
+{
+  "text": "Hello! I'm KindBot.",
+  "voice": "nova",      // optional. one of: alloy, ash, coral, echo, fable, nova, onyx, sage, shimmer
+  "model": "tts-1",     // optional. tts-1 (fast) or tts-1-hd (higher quality)
+  "speed": 1.0          // optional. 0.25 .. 4.0
+}
+```
+
+Response:
+```json
+{
+  "id": "a1b2c3d4e5f6g7h8",
+  "url": "/api/say/a1b2c3d4e5f6g7h8.mp3",
+  "durationMs": 1840,
+  "voice": "nova",
+  "model": "tts-1"
+}
+```
+
+Side-effects:
+1. The server immediately flips the engine into `talking` mode (saving the
+   previous mode for restoration).
+2. It broadcasts a `say` SSE event so every connected kiosk can play the
+   clip and lip-sync in real time.
+3. After `durationMs + 250ms` the server auto-restores the previous mode —
+   unless another transition has happened since (we use a token to avoid
+   stale auto-stops). You don't need to call `talking/stop` yourself.
+
+Errors:
+- `503` — `OPENAI_API_KEY not configured`. Add it to env and restart.
+- `400` — invalid `voice`, `model`, `speed`, or empty/oversized `text`
+  (4096-character cap from OpenAI).
+- `502` — TTS provider returned an error (passed through in the message).
+- `401` — bearer token missing or wrong.
 
 All mutations return the **new** state snapshot as JSON.
 
@@ -303,6 +349,18 @@ Encoding hints:
 export KINDBOT_API_TOKEN="$(openssl rand -base64 32)"
 echo "KINDBOT_API_TOKEN=$KINDBOT_API_TOKEN" >> .env   # for docker-compose
 ```
+
+### 2b. (Optional) Enable `/api/say` TTS lip-sync
+Get an OpenAI key at https://platform.openai.com/api-keys, then:
+```bash
+echo 'OPENAI_API_KEY=sk-…your-key…' >> .env
+# Optional defaults:
+echo 'KINDBOT_TTS_MODEL=tts-1' >> .env       # or tts-1-hd
+echo 'KINDBOT_TTS_VOICE=nova'  >> .env       # alloy|ash|coral|echo|fable|nova|onyx|sage|shimmer
+```
+The server boots fine without this key — `/api/say` simply returns 503 until
+the key is added. Cost is roughly `$0.015 / 1k characters` for `tts-1` and
+`$0.030 / 1k characters` for `tts-1-hd` (verify on OpenAI's pricing page).
 
 ### 3. Bring it up
 ```bash
@@ -564,21 +622,19 @@ Open ideas in priority order. None of these are required for the current
 spec — they're upgrades you can ship as small, additive PRs without touching
 the existing state machine.
 
-### 1. **`/api/say` — TTS lip-sync in one call** *(high impact)*
-A single endpoint that takes `{ "text": "...", "voice": "..." }`, generates
-audio with **ElevenLabs** or **OpenAI TTS**, plays it on the kiosk, and
-auto-toggles `talking_mode` for exactly the duration of the clip. Would let
-OpenClaw send one request instead of orchestrating
-`talking/start` → `play audio` → `talking/stop`.
+### 1. **`/api/say` — TTS lip-sync in one call** *(✅ shipped in v1.1)*
+**Status: implemented.** Single endpoint takes
+`{ "text": "...", "voice": "..." }`, generates audio with **OpenAI TTS**
+(`tts-1` or `tts-1-hd`), returns it as `/api/say/<id>.mp3`, and the kiosk
+plays it back with **Web Audio API amplitude analysis** driving the
+mouth's `scaleY` for true lip-sync. The server flips into `talking` mode
+on the call and auto-restores the previous mode after the audio ends.
 
-Implementation sketch:
-- New endpoint `POST /api/say` (Bearer auth) — proxies to TTS provider, gets
-  back an MP3, returns a URL like `/api/say/<id>.mp3`.
-- The kiosk reacts to a new SSE event `event: say` with `{ url, durationMs }`,
-  plays the audio inline, and the server schedules `talking/stop` at
-  `durationMs`.
-- Bonus: amplitude-driven mouth scale by hooking `Web Audio API` analyser
-  to the playing audio — the mouth's `scaleY` follows the actual loudness.
+Possible follow-ups in this area:
+- ElevenLabs voice provider as an alternative (more expressive voices).
+- Audio cache persistence to disk (currently in-memory, 10-minute TTL).
+- WebSocket fallback for environments where the SSE `say` event is
+  proxied poorly.
 
 ### 2. **Additional expressive states** *(low effort)*
 Add discrete states the rig already supports without geometry change:

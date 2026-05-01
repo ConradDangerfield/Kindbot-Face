@@ -4,24 +4,28 @@ import "@/App.css";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 const API = `${BACKEND_URL}/api`;
 
-// MP4 source map. In preview, files live in /assets/mp4/. In production
-// (Node.js single-container), the same path is served by Express static.
 const MP4_SOURCES = {
   music: "/assets/mp4/music.mp4",
   cleaning: "/assets/mp4/cleaning.mp4",
 };
 
 function App() {
-  const [mode, setMode] = useState("idle");          // idle | music | cleaning | talking
+  const [mode, setMode] = useState("idle");
   const [listening, setListening] = useState(false);
   const [connected, setConnected] = useState(false);
 
-  // Refs to SVG groups - we animate these via transforms only.
   const faceRef = useRef(null);
   const leftEyeRef = useRef(null);
   const rightEyeRef = useRef(null);
   const mouthRef = useRef(null);
   const videoRef = useRef(null);
+
+  // amplitude-driven lip-sync infrastructure (Web Audio API)
+  const audioCtxRef = useRef(null);
+  const sayAudioRef = useRef(null);
+  const sayAnalyserRef = useRef(null);
+  const sayRafRef = useRef(0);
+  const sayActiveRef = useRef(false);
 
   // ----- SSE subscription ------------------------------------------------
   useEffect(() => {
@@ -39,6 +43,12 @@ function App() {
           setConnected(true);
         } catch (_) {}
       });
+      es.addEventListener("say", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data && data.url) playSay(`${BACKEND_URL}${data.url}`);
+        } catch (_) {}
+      });
       es.onerror = () => {
         setConnected(false);
         es.close();
@@ -50,7 +60,9 @@ function App() {
       stopped = true;
       clearTimeout(retry);
       if (es) es.close();
+      stopSay();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ----- Blink loop ------------------------------------------------------
@@ -68,12 +80,10 @@ function App() {
 
     const schedule = () => {
       if (cancelled) return;
-      // Reduced rate when listening, normal otherwise
       const min = listening ? 4000 : 2000;
       const max = listening ? 8000 : 5000;
       const next = min + Math.random() * (max - min);
       timer = setTimeout(() => {
-        // Don't blink during MP4 modes (face is hidden)
         if (mode === "idle" || mode === "talking") blinkOnce();
         schedule();
       }, next);
@@ -85,11 +95,10 @@ function App() {
     };
   }, [mode, listening]);
 
-  // ----- Mouth talking loop ---------------------------------------------
+  // ----- Mouth talking loop (synthetic, used when no /api/say is active) -
   useEffect(() => {
-    if (mode !== "talking" || !mouthRef.current) {
-      // reset mouth transform when not talking
-      if (mouthRef.current) {
+    if (mode !== "talking" || !mouthRef.current || sayActiveRef.current) {
+      if (mouthRef.current && !sayActiveRef.current) {
         mouthRef.current.style.transform = "";
       }
       return;
@@ -101,7 +110,6 @@ function App() {
     let tgtSY = 1, tgtSX = 1;
 
     const pickTarget = () => {
-      // Random scaleY between 0.55 and 1.25, slight scaleX variation
       tgtSY = 0.55 + Math.random() * 0.7;
       tgtSX = 0.92 + Math.random() * 0.18;
       nextSwitchAt = performance.now() + 50 + Math.random() * 70;
@@ -110,8 +118,9 @@ function App() {
 
     const tick = (t) => {
       if (cancelled) return;
+      // If amplitude-driven sync took over mid-flight, yield
+      if (sayActiveRef.current) { return; }
       if (t >= nextSwitchAt) pickTarget();
-      // Smooth ease toward target
       curSY += (tgtSY - curSY) * 0.35;
       curSX += (tgtSX - curSX) * 0.35;
       if (mouthRef.current) {
@@ -123,9 +132,98 @@ function App() {
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
-      if (mouthRef.current) mouthRef.current.style.transform = "";
+      if (mouthRef.current && !sayActiveRef.current) {
+        mouthRef.current.style.transform = "";
+      }
     };
   }, [mode]);
+
+  // ----- /api/say playback with amplitude-driven mouth ------------------
+  const ensureAudioCtx = () => {
+    if (!audioCtxRef.current) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtxRef.current = new Ctx();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
+  };
+
+  const stopSay = () => {
+    sayActiveRef.current = false;
+    cancelAnimationFrame(sayRafRef.current);
+    if (sayAudioRef.current) {
+      try { sayAudioRef.current.pause(); } catch (_) {}
+      try { sayAudioRef.current.src = ""; } catch (_) {}
+      sayAudioRef.current = null;
+    }
+    sayAnalyserRef.current = null;
+    if (mouthRef.current) mouthRef.current.style.transform = "";
+  };
+
+  const playSay = (url) => {
+    stopSay();
+    const audio = new Audio(url);
+    audio.crossOrigin = "anonymous";
+    audio.preload = "auto";
+    sayAudioRef.current = audio;
+
+    const ctx = ensureAudioCtx();
+    let analyser = null;
+    if (ctx) {
+      try {
+        const src = ctx.createMediaElementSource(audio);
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.65;
+        src.connect(analyser);
+        analyser.connect(ctx.destination);
+        sayAnalyserRef.current = analyser;
+      } catch (_) {
+        // If WebAudio isn't available (some Pis with strict autoplay), audio
+        // will still play normally — the synthetic mouth loop will run.
+        analyser = null;
+      }
+    }
+
+    sayActiveRef.current = true;
+
+    const buf = analyser ? new Uint8Array(analyser.frequencyBinCount) : null;
+    let curSY = 1, curSX = 1;
+    const tick = () => {
+      if (!sayActiveRef.current) return;
+      let level = 0;
+      if (analyser && buf) {
+        analyser.getByteFrequencyData(buf);
+        // Use lower-mid range (vowel/consonant energy band)
+        let sum = 0, count = 0;
+        for (let i = 2; i < 32; i++) { sum += buf[i]; count++; }
+        level = count ? sum / count / 255 : 0;     // 0..1
+      } else {
+        // Fallback — fake a varying level
+        level = 0.25 + Math.abs(Math.sin(performance.now() / 90)) * 0.5;
+      }
+      const tgtSY = 0.30 + Math.min(1.0, level * 2.3) * 1.0;   // 0.30..1.30
+      const tgtSX = 0.96 + Math.min(0.18, level * 0.3);
+      curSY += (tgtSY - curSY) * 0.45;
+      curSX += (tgtSX - curSX) * 0.45;
+      if (mouthRef.current) {
+        mouthRef.current.style.transform = `scale(${curSX.toFixed(3)}, ${curSY.toFixed(3)})`;
+      }
+      sayRafRef.current = requestAnimationFrame(tick);
+    };
+
+    audio.addEventListener("ended", stopSay, { once: true });
+    audio.addEventListener("error", stopSay, { once: true });
+
+    const p = audio.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => stopSay());
+    }
+    sayRafRef.current = requestAnimationFrame(tick);
+  };
 
   // ----- MP4 playback management ----------------------------------------
   const showVideo = mode === "music" || mode === "cleaning";
@@ -134,7 +232,7 @@ function App() {
     const v = videoRef.current;
     if (!v) return;
     if (showVideo) {
-      v.muted = true;       // browsers require muted for autoplay
+      v.muted = true;
       v.playsInline = true;
       v.loop = true;
       const p = v.play();
@@ -144,7 +242,11 @@ function App() {
     }
   }, [showVideo, mode]);
 
-  // ----- Class composition ----------------------------------------------
+  // Stop /api/say playback if we leave talking mode for any reason
+  useEffect(() => {
+    if (mode !== "talking") stopSay();
+  }, [mode]);
+
   const stageClass = [
     "stage",
     `mode-${mode}`,
@@ -154,7 +256,6 @@ function App() {
 
   return (
     <div className={stageClass} data-testid="kindbot-stage">
-      {/* Fullscreen MP4 layer (music / cleaning) */}
       <div className="video-layer" data-testid="video-layer">
         <video
           ref={videoRef}
@@ -169,7 +270,6 @@ function App() {
         />
       </div>
 
-      {/* SVG face layer */}
       <div className="face-layer" data-testid="face-layer">
         <svg
           id="kindbot"
@@ -177,7 +277,6 @@ function App() {
           xmlns="http://www.w3.org/2000/svg"
           aria-label="KindBot face"
         >
-          {/* HEAD */}
           <g id="head">
             <rect
               x="40" y="40" width="720" height="400"
@@ -186,9 +285,7 @@ function App() {
             />
           </g>
 
-          {/* FACE GROUP - floating */}
           <g id="face" ref={faceRef} className="face-float">
-            {/* LEFT EYE */}
             <g
               id="left_eye"
               ref={leftEyeRef}
@@ -201,7 +298,6 @@ function App() {
               <circle cx="20" cy="10" r="6" fill="#fff" />
             </g>
 
-            {/* RIGHT EYE */}
             <g
               id="right_eye"
               ref={rightEyeRef}
@@ -214,7 +310,6 @@ function App() {
               <circle cx="20" cy="10" r="6" fill="#fff" />
             </g>
 
-            {/* MOUTH */}
             <g
               id="mouth"
               ref={mouthRef}
@@ -228,7 +323,6 @@ function App() {
         </svg>
       </div>
 
-      {/* HUD: minimal status indicator (top-left), useful for debugging on the Pi */}
       <div className="hud" data-testid="hud-status">
         <span className={`dot ${connected ? "ok" : "down"}`} />
         <span className="hud-mode" data-testid="hud-mode">{mode}</span>
