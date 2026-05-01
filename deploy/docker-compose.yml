@@ -1,9 +1,15 @@
 # KindBot Face Engine — Docker Compose for Hostinger VPS
 #
-# This compose file is designed for an existing Traefik reverse proxy that
-# is already running in another container (e.g. `traefik-ypta`).
+# Designed to run alongside an existing Traefik reverse proxy
+# (e.g. `traefik-ypta`).
 #
-# Required env (in ./.env or shell):
+# CONFIGURATION-PENDING MODE
+#   You can `docker compose up -d` with NO env file and the container will
+#   still start. /api/health, the kiosk page, and read-only endpoints work.
+#   Writes (/api/mode/*, /api/say) return 503 until you set the env vars
+#   and re-run `docker compose up -d`.
+#
+# Required env (in ./.env or shell) for full functionality:
 #   KINDBOT_API_TOKEN     Bearer token for /api/mode/* and /api/say
 #   KINDBOT_DOMAIN        Public hostname Traefik routes to (e.g. kindbot.example.tld)
 #
@@ -12,8 +18,7 @@
 #   KINDBOT_TTS_MODEL     tts-1 (default) or tts-1-hd
 #   KINDBOT_TTS_VOICE     alloy|ash|coral|echo|fable|nova(default)|onyx|sage|shimmer
 #   CORS_ORIGINS          comma-separated origins, default *
-#   TRAEFIK_NETWORK       external Docker network name Traefik is on,
-#                         default: traefik-ypta
+#   TRAEFIK_NETWORK       external Docker network Traefik is on, default: traefik-ypta
 #   TRAEFIK_ENTRYPOINT    Traefik entrypoint name for HTTPS, default: websecure
 #   TRAEFIK_CERT_RESOLVER Traefik cert resolver name, default: letsencrypt
 
@@ -32,7 +37,8 @@ services:
       - traefik
 
     environment:
-      - KINDBOT_API_TOKEN=${KINDBOT_API_TOKEN:?set KINDBOT_API_TOKEN in .env or shell}
+      # All writes return 503 until KINDBOT_API_TOKEN is set.
+      - KINDBOT_API_TOKEN=${KINDBOT_API_TOKEN:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - PORT=8080
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -40,15 +46,17 @@ services:
       - KINDBOT_TTS_VOICE=${KINDBOT_TTS_VOICE:-nova}
 
     volumes:
-      # Bind-mount your real MP4 assets so you can swap without rebuilds.
       - ./public/assets/mp4:/app/public/assets/mp4:ro
 
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-ypta}"
 
-      # Router (HTTPS)
-      - "traefik.http.routers.kindbot.rule=Host(`${KINDBOT_DOMAIN:?set KINDBOT_DOMAIN in .env}`)"
+      # Router (HTTPS). If KINDBOT_DOMAIN is unset we default to a placeholder
+      # so Traefik silently registers the route but never matches real traffic
+      # — once you set KINDBOT_DOMAIN and `docker compose up -d`, routing
+      # snaps into place.
+      - "traefik.http.routers.kindbot.rule=Host(`${KINDBOT_DOMAIN:-kindbot.unconfigured.local}`)"
       - "traefik.http.routers.kindbot.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.kindbot.tls=true"
       - "traefik.http.routers.kindbot.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
@@ -57,8 +65,6 @@ services:
       - "traefik.http.services.kindbot.loadbalancer.server.port=8080"
 
       # Long-lived connection support (SSE on /api/stream).
-      # Traefik streams by default; we just bump idle timeouts via a
-      # serversTransport-like middleware so 15s keepalives are enough.
       - "traefik.http.routers.kindbot.middlewares=kindbot-headers@docker"
       - "traefik.http.middlewares.kindbot-headers.headers.customResponseHeaders.X-Accel-Buffering=no"
 

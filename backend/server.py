@@ -170,7 +170,10 @@ security = HTTPBearer(auto_error=False)
 
 def require_token(creds: HTTPAuthorizationCredentials | None = Depends(security)) -> None:
     if not API_TOKEN:
-        raise HTTPException(status_code=500, detail="server token not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="KINDBOT_API_TOKEN not configured. Set it in .env and restart.",
+        )
     if creds is None or creds.scheme.lower() != "bearer" or creds.credentials != API_TOKEN:
         raise HTTPException(status_code=401, detail="invalid or missing bearer token")
 
@@ -186,6 +189,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "service": "kindbot-face-engine",
+        "token_configured": bool(API_TOKEN),
         "tts_enabled": bool(OPENAI_API_KEY),
     }
 

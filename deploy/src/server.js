@@ -34,8 +34,11 @@ const TTS_MODEL = (process.env.KINDBOT_TTS_MODEL || 'tts-1').toLowerCase();
 const TTS_VOICE = (process.env.KINDBOT_TTS_VOICE || 'nova').toLowerCase();
 
 if (!TOKEN) {
-  console.error('[kindbot] FATAL: KINDBOT_API_TOKEN env var is required');
-  process.exit(1);
+  console.warn('[kindbot] WARNING: KINDBOT_API_TOKEN is not set.');
+  console.warn('[kindbot]   Read-only endpoints (/api/health, /api/state, /api/stream)');
+  console.warn('[kindbot]   and the kiosk frontend will work normally, but');
+  console.warn('[kindbot]   /api/mode/* and /api/say will return 503 until a token');
+  console.warn('[kindbot]   is configured. Set KINDBOT_API_TOKEN in .env and restart.');
 }
 
 const app = express();
@@ -87,6 +90,11 @@ app.use((req, res, next) => {
 
 // ----- Auth middleware ------------------------------------------------------
 function requireToken(req, res, next) {
+  if (!TOKEN) {
+    return res.status(503).json({
+      error: 'KINDBOT_API_TOKEN not configured. Set it in .env and restart the container.',
+    });
+  }
   const h = req.headers.authorization || '';
   const m = /^Bearer\s+(.+)$/i.exec(h);
   if (!m || m[1] !== TOKEN) {
@@ -102,6 +110,7 @@ api.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'kindbot-face-engine',
+    token_configured: !!TOKEN,
     tts_enabled: !!openai,
   });
 });

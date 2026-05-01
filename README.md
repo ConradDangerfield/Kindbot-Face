@@ -52,7 +52,7 @@ existing Traefik instance for HTTPS/TLS.
 3. [State machine](#state-machine)
 4. [HTTP API](#http-api)
 5. [Repository layout & file walkthrough](#repository-layout--file-walkthrough)
-6. [Setup — production single-container (the Pi VPS)](#setup--production-single-container-the-pi-vps)
+6. [Setup — production single-container (the Hostinger VPS)](#setup--production-single-container-the-hostinger-vps)
 7. [Setup — Raspberry Pi kiosk client](#setup--raspberry-pi-kiosk-client)
 8. [Setup — Home Assistant integration](#setup--home-assistant-integration)
 9. [Setup — OpenClaw / generic clients](#setup--openclaw--generic-clients)
@@ -365,6 +365,46 @@ Authorization: Bearer <KINDBOT_API_TOKEN>
   via `process.env.REACT_APP_BACKEND_URL`.
 
 ---
+
+## Install-then-configure flow
+
+The container is designed so you can **install first and configure later**.
+
+| Stage | Without `.env` | With `.env` filled in |
+|---|---|---|
+| `docker compose build` / image pull | ✓ works | ✓ works |
+| `docker compose up -d` | ✓ container starts in **configuration-pending mode** | ✓ container starts fully |
+| Kiosk page (`GET /`) | ✓ renders the SVG face | ✓ renders the SVG face |
+| `GET /api/health` | ✓ 200, reports `token_configured:false` | ✓ 200, reports `token_configured:true` |
+| `GET /api/state`, `GET /api/stream` | ✓ work (read-only) | ✓ work |
+| `POST /api/mode/*`, `POST /api/say` | ⚠ **503** "KINDBOT_API_TOKEN not configured" | ✓ work with bearer auth |
+
+So the typical workflow is:
+
+```bash
+# 1. Pull the repo on the VPS, build & start with no env yet:
+git clone https://github.com/<you>/kindbot.git
+cd kindbot/deploy
+docker compose up -d --build
+docker compose logs kindbot                  # → "WARNING: KINDBOT_API_TOKEN is not set"
+curl https://kindbot.unconfigured.local/api/health  # not yet routable
+
+# 2. Configure:
+cp .env.example .env
+sed -i "s|^KINDBOT_API_TOKEN=.*|KINDBOT_API_TOKEN=$(openssl rand -base64 32)|" .env
+sed -i "s|^KINDBOT_DOMAIN=.*|KINDBOT_DOMAIN=kindbot.your.tld|" .env
+nano .env                                    # add OPENAI_API_KEY etc. as desired
+
+# 3. Apply (no rebuild needed — env-only change):
+docker compose up -d
+curl -fsSL https://kindbot.your.tld/api/health   # → token_configured:true
+```
+
+> Why two `docker compose up` calls?  Compose recreates the container when
+> environment variables change, which picks up your new `.env` values.
+> No image rebuild happens — it's a fast restart.
+
+
 
 ## Setup — production single-container (the Hostinger VPS)
 
@@ -691,8 +731,9 @@ exactly where the spec put it.
 
 | Symptom | Cause / fix |
 |---|---|
-| `error while interpolating services.kindbot.environment.[]: required variable KINDBOT_API_TOKEN is missing` during a build on the Emergent platform | The `deploy/` folder is for the Hostinger VPS, NOT for the Emergent platform. If you see this, the platform tried to build the Pi-VPS Docker artifacts. The artifacts are now isolated under `deploy/` so this should not happen — but if it does, ensure no `Dockerfile` or `docker-compose.yml` exists at the repo root. |
-| `KINDBOT_API_TOKEN env var is required` and the container exits | Set the env var (compose `.env` or shell on your Hostinger VPS) and restart. |
+| `error while interpolating services.kindbot.environment.[]: required variable KINDBOT_API_TOKEN is missing` during a build on the Emergent platform | The `deploy/` folder is for the Hostinger VPS, NOT for the Emergent platform. Make sure no `Dockerfile` or `docker-compose.yml` exists at the repo root. (Current compose uses `:-` defaults so this error should no longer occur even on Emergent.) |
+| Container starts but logs `WARNING: KINDBOT_API_TOKEN is not set` | Expected if you haven't configured `.env` yet. The container is in **configuration-pending mode**. Read-only endpoints work, writes return 503. Set `KINDBOT_API_TOKEN` in `deploy/.env` and run `docker compose up -d`. |
+| `KINDBOT_API_TOKEN env var is required` and the container exits | Old behaviour — only seen if you're running an older image. Re-pull / rebuild. |
 | Kiosk shows the face but never updates on POST | Reverse proxy is buffering SSE. Add `proxy_buffering off` (nginx) or `flush_interval -1` (Caddy). |
 | `401 invalid or missing bearer token` | The header must be exactly `Authorization: Bearer <token>` — note the space and the literal word `Bearer`. |
 | MP4 mode shows a black screen | `music.mp4` / `cleaning.mp4` is missing from `public/assets/mp4/` or its codec is unsupported. Use H.264. |
