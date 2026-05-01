@@ -25,7 +25,9 @@
 services:
   kindbot:
     build: .
-    image: kindbot/face-engine:latest
+    # No `image:` on purpose — this forces compose / orchestrators to build
+    # locally from the Dockerfile above instead of pulling from a registry.
+    pull_policy: build
     container_name: kindbot-face
     restart: unless-stopped
 
