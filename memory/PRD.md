@@ -36,9 +36,7 @@ Assistant + OpenClaw. Single Docker container.
 
 ## Implemented (2026-02-01)
 - ✅ FastAPI backend with bearer-token auth, `FaceState` singleton, SSE stream,
-  all 7 mode endpoints (`/api/mode/{idle,music,cleaning}`,
-  `/api/mode/talking/{start,stop}`, `/api/mode/listening/{start,stop}`),
-  `/api/health`, `/api/state`. (`/app/backend/server.py`)
+  all 7 mode endpoints, `/api/health`, `/api/state`. (`/app/backend/server.py`)
 - ✅ React kiosk: inline SVG rig (verbatim), idle bob keyframes, blink loop,
   talking mouth `requestAnimationFrame` loop, listening eye scale, MP4
   fullscreen layer with 280ms fade, SSE auto-reconnect, HUD with mode +
@@ -49,6 +47,20 @@ Assistant + OpenClaw. Single Docker container.
 - ✅ Dockerfile (multi-stage, alpine, non-root, healthcheck) +
   docker-compose.yml (env-driven, MP4 bind mount)
 - ✅ End-to-end testing passed (12/12 backend, all frontend reactivity checks)
+
+## Implemented (2026-02-01, v1.1)
+- ✅ Pure white background (replacing the cream theme)
+- ✅ "Made with Emergent" badge removed from preview kiosk
+- ✅ **`/api/say` TTS lip-sync** (OpenAI TTS via `emergentintegrations`
+  / `openai` SDK in Node). Server flips to `talking`, broadcasts a `say`
+  SSE event, auto-restores previous mode after audio ends.
+- ✅ **Web Audio API amplitude-driven mouth** — kiosk uses an
+  `AnalyserNode` on the playing TTS audio and writes the lower-mid
+  frequency energy to `mouth.style.transform = scale(...)` per frame
+  (transforms only — rig is still untouched).
+- ✅ Cache + serve generated MP3s at `/api/say/<id>.mp3`
+  (in-memory, 10-min TTL, 32-entry cap).
+- ✅ End-to-end testing passed (19/19 backend, all frontend flows).
 
 ## What's remaining / backlog
 **P0**
