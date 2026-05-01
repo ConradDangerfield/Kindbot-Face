@@ -1,0 +1,17 @@
+services:
+  kindbot:
+    build: .
+    image: kindbot/face-engine:latest
+    container_name: kindbot-face
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # REQUIRED: bearer token for /api/mode/* writes (Home Assistant / OpenClaw use this)
+      - KINDBOT_API_TOKEN=${KINDBOT_API_TOKEN:?set KINDBOT_API_TOKEN in .env or shell}
+      # Optional: comma-separated allowed CORS origins. Default: *
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - PORT=8080
+    volumes:
+      # Mount your real MP4 assets here; bind-mount lets you swap without rebuilds.
+      - ./public/assets/mp4:/app/public/assets/mp4:ro

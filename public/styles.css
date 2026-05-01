@@ -1,0 +1,178 @@
+/* KindBot Face Engine — kiosk styles (production)
+ * Optimised for 800x480 Raspberry Pi screen, fullscreen Chromium kiosk.
+ * Animation uses transforms only (no geometry mutation).
+ */
+
+:root {
+  --bg: #f3ede1;
+  --bg-deep: #ebe2d0;
+  --ink: #111;
+  --ok: #57c785;
+  --down: #d97757;
+  --hud-fg: rgba(20, 20, 20, 0.55);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: none;
+}
+* { box-sizing: border-box; }
+
+.stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: radial-gradient(ellipse at 30% 20%, var(--bg) 0%, var(--bg-deep) 100%);
+  overflow: hidden;
+}
+.stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(0,0,0,0.045) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+.face-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 250ms ease-in-out;
+  z-index: 2;
+}
+.video-on .face-layer { opacity: 0; pointer-events: none; }
+
+#kindbot {
+  width: min(96vw, calc(96vh * (800 / 480)));
+  height: auto;
+  display: block;
+}
+
+.face-float {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: face-bob 5.2s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes face-bob {
+  0%   { transform: translate(0,  0px)  rotate(-1.2deg); }
+  50%  { transform: translate(0, -10px) rotate(1.2deg); }
+  100% { transform: translate(0,  0px)  rotate(-1.2deg); }
+}
+
+.is-listening .face-float { animation-duration: 7s; }
+.is-listening #left_eye  { animation: eye-attentive-l 3.6s ease-in-out infinite; }
+.is-listening #right_eye { animation: eye-attentive-r 3.6s ease-in-out infinite; }
+@keyframes eye-attentive-l {
+  0%, 100% { transform: translate(260px, 220px) scale(1); }
+  50%      { transform: translate(260px, 220px) scale(1.12); }
+}
+@keyframes eye-attentive-r {
+  0%, 100% { transform: translate(540px, 220px) scale(1); }
+  50%      { transform: translate(540px, 220px) scale(1.12); }
+}
+
+.eye { transform-box: fill-box; transform-origin: center; }
+
+#left_eye.blink  { animation: blink-l 130ms ease-in-out; }
+#right_eye.blink { animation: blink-r 130ms ease-in-out; }
+@keyframes blink-l {
+  0%   { transform: translate(260px, 220px) scaleY(1); }
+  50%  { transform: translate(260px, 220px) scaleY(0.1); }
+  100% { transform: translate(260px, 220px) scaleY(1); }
+}
+@keyframes blink-r {
+  0%   { transform: translate(540px, 220px) scaleY(1); }
+  50%  { transform: translate(540px, 220px) scaleY(0.1); }
+  100% { transform: translate(540px, 220px) scaleY(1); }
+}
+
+#mouth {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 90ms ease-out;
+}
+
+.mode-talking #left_eye  { animation: talking-eye-l 1.6s ease-in-out infinite; }
+.mode-talking #right_eye { animation: talking-eye-r 1.6s ease-in-out infinite; }
+@keyframes talking-eye-l {
+  0%, 100% { transform: translate(260px, 220px); }
+  50%      { transform: translate(260px, 215px); }
+}
+@keyframes talking-eye-r {
+  0%, 100% { transform: translate(540px, 220px); }
+  50%      { transform: translate(540px, 215px); }
+}
+
+.video-layer {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  transition: opacity 280ms ease-in-out;
+  z-index: 1;
+}
+.video-on .video-layer { opacity: 1; z-index: 3; }
+
+.bg-video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+.mode-talking .video-layer { opacity: 0 !important; z-index: 1 !important; }
+.mode-talking .face-layer  { opacity: 1 !important; }
+
+.hud {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hud-fg);
+  pointer-events: none;
+}
+.hud .dot {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--down);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
+  transition: background 200ms ease;
+}
+.hud .dot.ok { background: var(--ok); }
+.hud-mode {
+  padding: 2px 8px;
+  border: 1px solid rgba(0,0,0,0.18);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.4);
+  backdrop-filter: blur(6px);
+}
+.hud-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.85);
+  color: #fff;
+}
+.video-on .hud { opacity: 0.55; }

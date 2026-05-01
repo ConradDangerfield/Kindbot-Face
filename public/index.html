@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#f3ede1" />
+    <title>KindBot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="stage" class="stage mode-idle" data-testid="kindbot-stage">
+
+      <!-- Fullscreen MP4 layer -->
+      <div id="video-layer" class="video-layer" data-testid="video-layer">
+        <video id="bg-video" class="bg-video"
+               autoplay loop muted playsinline preload="auto"
+               data-testid="bg-video"></video>
+      </div>
+
+      <!-- SVG face layer -->
+      <div id="face-layer" class="face-layer" data-testid="face-layer">
+        <svg id="kindbot" viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg" aria-label="KindBot face">
+          <g id="head">
+            <rect x="40" y="40" width="720" height="400" rx="80" ry="80"
+                  fill="none" stroke="#111" stroke-width="12"/>
+          </g>
+          <g id="face" class="face-float">
+            <g id="left_eye" class="eye" transform="translate(260, 220)" data-testid="left-eye">
+              <ellipse cx="0" cy="0" rx="55" ry="55" fill="#111"/>
+              <circle cx="-15" cy="-15" r="12" fill="#fff"/>
+              <circle cx="20" cy="10" r="6" fill="#fff"/>
+            </g>
+            <g id="right_eye" class="eye" transform="translate(540, 220)" data-testid="right-eye">
+              <ellipse cx="0" cy="0" rx="55" ry="55" fill="#111"/>
+              <circle cx="-15" cy="-15" r="12" fill="#fff"/>
+              <circle cx="20" cy="10" r="6" fill="#fff"/>
+            </g>
+            <g id="mouth" class="mouth" transform="translate(400, 310)" data-testid="mouth">
+              <rect x="-60" y="-18" width="120" height="36" rx="18" fill="#111"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+
+      <div id="hud" class="hud" data-testid="hud-status">
+        <span id="dot" class="dot down"></span>
+        <span id="hud-mode" class="hud-mode" data-testid="hud-mode">idle</span>
+        <span id="hud-listening" class="hud-tag" data-testid="hud-listening" hidden>listening</span>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "kindbot-face-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lightweight SVG face engine for KindBot kiosk on Raspberry Pi.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
