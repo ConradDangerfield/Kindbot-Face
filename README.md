@@ -13,6 +13,32 @@ or going idle.
 > only with CSS transforms and `requestAnimationFrame` — never by mutating
 > SVG geometry, swapping images, or rebuilding the face.
 
+## Deployment topology
+
+```
+        ┌──────────────────────────────────┐                ┌──────────────────────────────┐
+        │  Hostinger VPS                   │                │  Raspberry Pi (display only) │
+        │                                  │                │                              │
+        │  Docker container                │   HTTPS / SSE  │  Chromium kiosk              │
+        │  ┌──────────────────────────┐    │  ◄──────────►  │  (5" screen, 800x480)        │
+        │  │  Express :8080           │    │                │                              │
+        │  │  - serves kiosk page     │    │                │  Pointing at:                │
+        │  │  - serves /api/*         │    │                │  https://kindbot.<your-      │
+        │  │  - SSE /api/stream       │    │                │             domain>.tld/     │
+        │  └──────────────────────────┘    │                │                              │
+        └──────────────┬───────────────────┘                └──────────────────────────────┘
+                       │
+                       │ HTTPS POST /api/mode/* and /api/say
+                       │ Authorization: Bearer <token>
+                       │
+        ┌──────────────┴───────────────────┐
+        │  Home Assistant / OpenClaw       │
+        └──────────────────────────────────┘
+```
+
+The Pi runs **only Chromium** in kiosk mode. All state, rendering, TTS, and
+APIs live inside one Docker container on the Hostinger VPS.
+
 ---
 
 ## Table of contents
@@ -37,18 +63,18 @@ or going idle.
 
 | Path | Purpose |
 |---|---|
-| `/app/src/server.js`                 | Production Node.js Express server (single container target) |
-| `/app/src/state.js`                  | In-memory state machine (mirrors backend Python) |
-| `/app/public/index.html`             | Kiosk page with the inline SVG rig |
-| `/app/public/styles.css`             | Animations + layout |
-| `/app/public/app.js`                 | Frontend logic — SSE subscription + transform-driven animations |
-| `/app/public/assets/mp4/`            | **You drop `music.mp4` and `cleaning.mp4` here** |
-| `/app/Dockerfile`                    | Multi-stage Alpine image, non-root, healthchecked |
-| `/app/docker-compose.yml`            | One-command deployment |
-| `/app/package.json`                  | Production deps (express only) |
-| `/app/backend/server.py`             | Preview-environment FastAPI mirror (used in this repo's preview only) |
-| `/app/frontend/`                     | Preview-environment React mirror (used in this repo's preview only) |
-| `/app/memory/test_credentials.md`    | Bearer token for testing |
+| `/app/pi-deploy/src/server.js`         | Production Node.js Express server (single container target) |
+| `/app/pi-deploy/src/state.js`          | In-memory state machine (mirrors backend Python) |
+| `/app/pi-deploy/public/index.html`     | Kiosk page with the inline SVG rig |
+| `/app/pi-deploy/public/styles.css`     | Animations + layout |
+| `/app/pi-deploy/public/app.js`         | Frontend logic — SSE subscription + transform-driven animations |
+| `/app/pi-deploy/public/assets/mp4/`    | **You drop `music.mp4` and `cleaning.mp4` here** |
+| `/app/pi-deploy/Dockerfile`            | Multi-stage Alpine image, non-root, healthchecked |
+| `/app/pi-deploy/docker-compose.yml`    | One-command deployment |
+| `/app/pi-deploy/package.json`          | Production deps (express, openai, music-metadata) |
+| `/app/backend/server.py`               | Preview-environment FastAPI mirror (used in this repo's preview only) |
+| `/app/frontend/`                       | Preview-environment React mirror (used in this repo's preview only) |
+| `/app/memory/test_credentials.md`      | Bearer token for testing |
 
 ---
 
@@ -240,34 +266,40 @@ Authorization: Bearer <KINDBOT_API_TOKEN>
 
 ```
 /app
-├── src/                       # Node.js server (production target)
-│   ├── server.js              # Express + SSE + bearer auth + static
-│   └── state.js               # FaceState class (in-memory, pub/sub)
-├── public/                    # Static kiosk assets served by Express
-│   ├── index.html             # Kiosk page (inline SVG rig)
-│   ├── styles.css             # All animations & layout (transforms only)
-│   ├── app.js                 # SSE subscription + animation loops
-│   └── assets/mp4/            # YOUR music.mp4 and cleaning.mp4 go here
-├── Dockerfile                 # Multi-stage Alpine, non-root, healthchecked
-├── docker-compose.yml         # One-command deployment, env-driven
-├── package.json               # express ^4.19.2 (only dep)
+├── deploy/                    # ── Hostinger VPS Docker target ──
+│   ├── src/                   # Node.js server
+│   │   ├── server.js          # Express + SSE + bearer auth + static
+│   │   └── state.js           # FaceState class (in-memory, pub/sub)
+│   ├── public/                # Static kiosk assets served by Express
+│   │   ├── index.html         # Kiosk page (inline SVG rig)
+│   │   ├── styles.css         # All animations & layout (transforms only)
+│   │   ├── app.js             # SSE subscription + animation loops
+│   │   └── assets/mp4/        # YOUR music.mp4 and cleaning.mp4 go here
+│   ├── Dockerfile             # Multi-stage Alpine, non-root, healthchecked
+│   ├── docker-compose.yml     # One-command deployment, env-driven
+│   └── package.json           # express, openai, music-metadata
 │
 ├── backend/                   # ── Preview-only FastAPI mirror ──
-│   ├── server.py              # Identical behaviour to src/server.js
+│   ├── server.py              # Identical behaviour to deploy/src/server.js
 │   ├── requirements.txt
-│   └── .env                   # KINDBOT_API_TOKEN, CORS_ORIGINS, MONGO_URL
+│   └── .env                   # KINDBOT_API_TOKEN, OPENAI_API_KEY, …
 │
 ├── frontend/                  # ── Preview-only React mirror ──
 │   ├── src/
-│   │   ├── App.js             # Same kiosk component as public/index.html
-│   │   ├── App.css            # Same animations as public/styles.css
+│   │   ├── App.js             # Same kiosk component as deploy/public/index.html
+│   │   ├── App.css            # Same animations as deploy/public/styles.css
 │   │   └── index.css
-│   └── public/assets/mp4/     # Mirror of public/assets/mp4 for preview
+│   └── public/assets/mp4/     # Mirror of deploy/public/assets/mp4 for preview
 │
 └── memory/
     ├── PRD.md                 # Product brief
     └── test_credentials.md    # Bearer token + endpoint cheatsheet
 ```
+
+> **Why `deploy/` is its own folder?** The Pi-VPS Docker artifacts live in
+> their own subfolder so they're never picked up by the Emergent platform's
+> deployment build (which expects the FastAPI + React layout at the repo
+> root). Build / deploy your Hostinger container from inside `deploy/`.
 
 ### File-by-file annotations
 
@@ -330,14 +362,17 @@ Authorization: Bearer <KINDBOT_API_TOKEN>
 
 ---
 
-## Setup — production single-container (the Pi VPS)
+## Setup — production single-container (the Hostinger VPS)
 
-> Time required: ~3 minutes if Docker is already installed.
+> Time required: ~3 minutes if Docker is already installed on the VPS.
+>
+> SSH into your Hostinger VPS and clone this repo there. The Pi never runs
+> any of this — the Pi only points Chromium at the VPS URL.
 
 ### 1. Drop your MP4 assets in
 ```bash
-cd /path/to/this/repo
-ls public/assets/mp4/                # should contain music.mp4 + cleaning.mp4
+cd /path/to/this/repo/deploy              # ← all Docker artifacts live here
+ls public/assets/mp4/                     # should contain music.mp4 + cleaning.mp4
 ```
 Encoding hints:
 - Container/codec: H.264 + AAC (or no audio at all) in MP4
@@ -364,9 +399,10 @@ the key is added. Cost is roughly `$0.015 / 1k characters` for `tts-1` and
 
 ### 3. Bring it up
 ```bash
+cd deploy/                                   # all Docker artifacts live here
 docker compose up -d --build
-docker compose logs -f kindbot          # watch startup
-curl http://localhost:8080/api/health   # → {"status":"ok",...}
+docker compose logs -f kindbot               # watch startup
+curl http://localhost:8080/api/health        # → {"status":"ok",...}
 ```
 
 The compose file:
@@ -376,10 +412,18 @@ The compose file:
 - Exposes a healthcheck (`/api/health`) that Docker uses to keep the
   container marked healthy.
 
-### 4. Put it behind HTTPS (strongly recommended)
+### 4. Open the firewall + put it behind HTTPS
 
-You requested HTTPS-only. Bearer tokens over plaintext HTTP are not safe.
-Easy options:
+On Hostinger, port 8080 is closed by default. Either:
+
+**A) Expose 8080 directly** (simple, but plaintext — fine only on a private
+network or a quick test):
+```bash
+sudo ufw allow 8080/tcp
+```
+
+**B) Front it with HTTPS via Caddy or nginx** (strongly recommended — the
+bearer token must not travel over plaintext):
 
 #### Option A — Caddy (zero-config TLS via Let's Encrypt)
 ```caddy
@@ -412,11 +456,14 @@ server {
 
 ---
 
-## Setup — Raspberry Pi kiosk client
+## Setup — Raspberry Pi kiosk client (display only)
+
+The Pi is **only** a Chromium kiosk — no Docker, no Node.js, no API
+runs on it. It connects to the Hostinger VPS over HTTPS.
 
 Assumes Raspberry Pi OS (Bookworm) with Chromium installed.
 
-### 1. Make Chromium boot in kiosk mode
+### 1. Make Chromium boot in kiosk mode pointing at the VPS
 
 Create `/etc/xdg/autostart/kindbot-kiosk.desktop`:
 
@@ -606,7 +653,8 @@ exactly where the spec put it.
 
 | Symptom | Cause / fix |
 |---|---|
-| `KINDBOT_API_TOKEN env var is required` and the container exits | Set the env var (compose `.env` or shell) and restart. |
+| `error while interpolating services.kindbot.environment.[]: required variable KINDBOT_API_TOKEN is missing` during a build on the Emergent platform | The `deploy/` folder is for the Hostinger VPS, NOT for the Emergent platform. If you see this, the platform tried to build the Pi-VPS Docker artifacts. The artifacts are now isolated under `deploy/` so this should not happen — but if it does, ensure no `Dockerfile` or `docker-compose.yml` exists at the repo root. |
+| `KINDBOT_API_TOKEN env var is required` and the container exits | Set the env var (compose `.env` or shell on your Hostinger VPS) and restart. |
 | Kiosk shows the face but never updates on POST | Reverse proxy is buffering SSE. Add `proxy_buffering off` (nginx) or `flush_interval -1` (Caddy). |
 | `401 invalid or missing bearer token` | The header must be exactly `Authorization: Bearer <token>` — note the space and the literal word `Bearer`. |
 | MP4 mode shows a black screen | `music.mp4` / `cleaning.mp4` is missing from `public/assets/mp4/` or its codec is unsupported. Use H.264. |
