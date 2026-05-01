@@ -16,28 +16,32 @@ or going idle.
 ## Deployment topology
 
 ```
-        ┌──────────────────────────────────┐                ┌──────────────────────────────┐
-        │  Hostinger VPS                   │                │  Raspberry Pi (display only) │
-        │                                  │                │                              │
-        │  Docker container                │   HTTPS / SSE  │  Chromium kiosk              │
-        │  ┌──────────────────────────┐    │  ◄──────────►  │  (5" screen, 800x480)        │
-        │  │  Express :8080           │    │                │                              │
-        │  │  - serves kiosk page     │    │                │  Pointing at:                │
-        │  │  - serves /api/*         │    │                │  https://kindbot.<your-      │
-        │  │  - SSE /api/stream       │    │                │             domain>.tld/     │
-        │  └──────────────────────────┘    │                │                              │
-        └──────────────┬───────────────────┘                └──────────────────────────────┘
+        ┌──────────────────────────────────────┐                ┌──────────────────────────────┐
+        │  Hostinger VPS                       │                │  Raspberry Pi (display only) │
+        │                                      │                │                              │
+        │  ┌────────────────────┐              │                │  Chromium kiosk              │
+        │  │  Traefik           │  HTTPS / SSE │   HTTPS / SSE  │  (5" screen, 800x480)        │
+        │  │  (TLS termination) │ ◄────────────┼──────────────► │                              │
+        │  └─────────┬──────────┘              │                │  Pointing at:                │
+        │            │ docker net              │                │  https://kindbot.<your-      │
+        │            ▼                         │                │             domain>.tld/     │
+        │  ┌────────────────────┐              │                │                              │
+        │  │  kindbot-face:8080 │              │                │                              │
+        │  │  Express + SSE     │              │                │                              │
+        │  └────────────────────┘              │                │                              │
+        └──────────────┬───────────────────────┘                └──────────────────────────────┘
                        │
                        │ HTTPS POST /api/mode/* and /api/say
                        │ Authorization: Bearer <token>
                        │
-        ┌──────────────┴───────────────────┐
-        │  Home Assistant / OpenClaw       │
-        └──────────────────────────────────┘
+        ┌──────────────┴───────────────────────┐
+        │  Home Assistant / OpenClaw           │
+        └──────────────────────────────────────┘
 ```
 
 The Pi runs **only Chromium** in kiosk mode. All state, rendering, TTS, and
-APIs live inside one Docker container on the Hostinger VPS.
+APIs live inside one Docker container on the Hostinger VPS, fronted by your
+existing Traefik instance for HTTPS/TLS.
 
 ---
 
@@ -400,9 +404,14 @@ the key is added. Cost is roughly `$0.015 / 1k characters` for `tts-1` and
 ### 3. Bring it up
 ```bash
 cd deploy/                                   # all Docker artifacts live here
+echo "KINDBOT_API_TOKEN=$KINDBOT_API_TOKEN"  >> .env   # if not already
+echo "KINDBOT_DOMAIN=kindbot.your.tld"       >> .env   # required for Traefik routing
 docker compose up -d --build
 docker compose logs -f kindbot               # watch startup
-curl http://localhost:8080/api/health        # → {"status":"ok",...}
+```
+Health check (through Traefik, once DNS for `KINDBOT_DOMAIN` points at the VPS):
+```bash
+curl -fsSL https://kindbot.your.tld/api/health   # → {"status":"ok",...}
 ```
 
 The compose file:
@@ -412,47 +421,76 @@ The compose file:
 - Exposes a healthcheck (`/api/health`) that Docker uses to keep the
   container marked healthy.
 
-### 4. Open the firewall + put it behind HTTPS
+### 4. Wire it into your existing Traefik (recommended)
 
-On Hostinger, port 8080 is closed by default. Either:
+This compose file is built for an existing Traefik instance running in
+another container — e.g. `traefik-ypta`. The KindBot container does NOT
+publish a host port; Traefik reaches it on the shared Docker network.
 
-**A) Expose 8080 directly** (simple, but plaintext — fine only on a private
-network or a quick test):
+**Required env (in `./deploy/.env` or shell):**
 ```bash
-sudo ufw allow 8080/tcp
+KINDBOT_API_TOKEN=…                 # generated above
+KINDBOT_DOMAIN=kindbot.your.tld     # public hostname Traefik routes to
 ```
 
-**B) Front it with HTTPS via Caddy or nginx** (strongly recommended — the
-bearer token must not travel over plaintext):
-
-#### Option A — Caddy (zero-config TLS via Let's Encrypt)
-```caddy
-kindbot.your-domain.tld {
-    reverse_proxy 127.0.0.1:8080 {
-        flush_interval -1     # critical: do not buffer SSE
-    }
-}
+**Optional env (with sensible defaults — only override if your Traefik
+setup uses different names):**
+```bash
+TRAEFIK_NETWORK=traefik-ypta        # external Docker network Traefik is on
+TRAEFIK_ENTRYPOINT=websecure        # Traefik HTTPS entrypoint
+TRAEFIK_CERT_RESOLVER=letsencrypt   # Traefik cert resolver
 ```
 
-#### Option B — nginx
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name kindbot.your-domain.tld;
-    # ssl_certificate ... ssl_certificate_key ...
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_buffering off;       # critical for SSE
-        proxy_cache off;
-    }
-}
+**Bring it up:**
+```bash
+cd deploy/
+docker compose up -d --build
+docker compose logs -f kindbot
 ```
+
+The compose file declares the Traefik network as `external: true` and
+attaches `kindbot-face` to it. Traefik picks up the labels and automatically:
+- routes `https://${KINDBOT_DOMAIN}/` → `kindbot-face:8080`
+- terminates TLS via your cert resolver
+- adds `X-Accel-Buffering: no` so the SSE stream isn't buffered
+
+Verify routing:
+```bash
+curl -fsSL https://${KINDBOT_DOMAIN}/api/health
+# {"status":"ok","service":"kindbot-face-engine","tts_enabled":false}
+```
+
+If you ever need to bypass Traefik for local debugging, drop a temporary
+`ports: ["8080:8080"]` block under the `kindbot` service.
+
+#### Don't have Traefik?
+
+If you ever need to swap to nginx / Caddy / direct port instead, do
+**one** of:
+
+- Comment out the `networks:` block, the `labels:` block, and the
+  external `networks:` declaration at the bottom of `docker-compose.yml`,
+  then add `ports: ["8080:8080"]`. Open `ufw allow 8080/tcp`.
+- Or front it with nginx:
+  ```nginx
+  server {
+      listen 443 ssl http2;
+      server_name kindbot.your-domain.tld;
+      # ssl_certificate ... ssl_certificate_key ...
+      location / {
+          proxy_pass http://127.0.0.1:8080;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_buffering off;       # critical for SSE
+          proxy_cache off;
+      }
+  }
+  ```
 
 > **SSE proxying gotcha:** any reverse proxy MUST disable response buffering
 > for `/api/stream` or the kiosk will not receive state events in real time.
+> Traefik streams responses by default — no extra config needed beyond what
+> the compose file already sets.
 
 ---
 
