@@ -4,10 +4,13 @@ import "@/App.css";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 const API = `${BACKEND_URL}/api`;
 
-const MP4_SOURCES = {
-  music: "/assets/mp4/music.mp4",
-  cleaning: "/assets/mp4/cleaning.mp4",
-};
+const VIDEO_MODES = [
+  "music", "cleaning", "chef", "gaming", "angry", "bandit",
+  "karate", "love", "party", "santa", "sleeping", "hot",
+];
+const MP4_SOURCES = Object.fromEntries(
+  VIDEO_MODES.map((m) => [m, `/assets/mp4/${m}.mp4`])
+);
 
 function App() {
   const [mode, setMode] = useState("idle");
@@ -226,7 +229,7 @@ function App() {
   };
 
   // ----- MP4 playback management ----------------------------------------
-  const showVideo = mode === "music" || mode === "cleaning";
+  const showVideo = Object.prototype.hasOwnProperty.call(MP4_SOURCES, mode);
 
   useEffect(() => {
     const v = videoRef.current;

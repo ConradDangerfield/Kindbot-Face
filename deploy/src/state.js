@@ -2,7 +2,26 @@
 // Generic pub/sub: subscribers receive {event, data} envelopes so we can
 // multiplex 'state' updates and 'say' events on a single SSE channel.
 
-const VALID_MODES = new Set(['idle', 'music', 'cleaning', 'talking']);
+// MP4-backed modes — each one plays /assets/mp4/<name>.mp4 fullscreen.
+// Add a new entry here AND drop the matching mp4 in deploy/public/assets/mp4/
+// — no other code changes needed.
+const VIDEO_MODES = new Set([
+  'music',
+  'cleaning',
+  'chef',
+  'gaming',
+  'angry',
+  'bandit',
+  'karate',
+  'love',
+  'party',
+  'santa',
+  'sleeping',
+  'hot',
+]);
+
+// Non-video modes: idle (default face), talking (overlay; saves prev_mode).
+const VALID_MODES = new Set(['idle', 'talking', ...VIDEO_MODES]);
 
 class FaceState {
   constructor() {
@@ -76,4 +95,4 @@ class FaceState {
   }
 }
 
-module.exports = { FaceState, VALID_MODES };
+module.exports = { FaceState, VALID_MODES, VIDEO_MODES };

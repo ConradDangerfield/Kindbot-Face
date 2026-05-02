@@ -24,7 +24,7 @@ const crypto = require('crypto');
 const express = require('express');
 const OpenAI = require('openai');
 const mm = require('music-metadata');
-const { FaceState } = require('./state');
+const { FaceState, VIDEO_MODES } = require('./state');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const TOKEN = process.env.KINDBOT_API_TOKEN || '';
@@ -146,11 +146,14 @@ api.get('/stream', (req, res) => {
 });
 
 // ---- Mode endpoints --------------------------------------------------------
-api.post('/mode/idle',     requireToken, (_req, res) => res.json(state.setMode('idle')));
-api.post('/mode/music',    requireToken, (_req, res) => res.json(state.setMode('music')));
-api.post('/mode/cleaning', requireToken, (_req, res) => res.json(state.setMode('cleaning')));
-api.post('/mode/talking/start', requireToken, (_req, res) => res.json(state.startTalking().snapshot));
-api.post('/mode/talking/stop',  requireToken, (_req, res) => res.json(state.stopTalking()));
+// Idle (no video) and talking (overlay) are explicit. Every video mode in
+// VIDEO_MODES gets a POST /api/mode/<name> that flips into that mode.
+api.post('/mode/idle', requireToken, (_req, res) => res.json(state.setMode('idle')));
+for (const m of VIDEO_MODES) {
+  api.post(`/mode/${m}`, requireToken, (_req, res) => res.json(state.setMode(m)));
+}
+api.post('/mode/talking/start',   requireToken, (_req, res) => res.json(state.startTalking().snapshot));
+api.post('/mode/talking/stop',    requireToken, (_req, res) => res.json(state.stopTalking()));
 api.post('/mode/listening/start', requireToken, (_req, res) => res.json(state.setListening(true)));
 api.post('/mode/listening/stop',  requireToken, (_req, res) => res.json(state.setListening(false)));
 

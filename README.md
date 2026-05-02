@@ -598,6 +598,56 @@ rest_command:
     method: POST
     headers:
       Authorization: !secret kindbot_token
+  kindbot_chef:
+    url: "https://kindbot.your-domain.tld/api/mode/chef"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_gaming:
+    url: "https://kindbot.your-domain.tld/api/mode/gaming"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_angry:
+    url: "https://kindbot.your-domain.tld/api/mode/angry"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_bandit:
+    url: "https://kindbot.your-domain.tld/api/mode/bandit"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_karate:
+    url: "https://kindbot.your-domain.tld/api/mode/karate"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_love:
+    url: "https://kindbot.your-domain.tld/api/mode/love"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_party:
+    url: "https://kindbot.your-domain.tld/api/mode/party"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_santa:
+    url: "https://kindbot.your-domain.tld/api/mode/santa"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_sleeping:
+    url: "https://kindbot.your-domain.tld/api/mode/sleeping"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
+  kindbot_hot:
+    url: "https://kindbot.your-domain.tld/api/mode/hot"
+    method: POST
+    headers:
+      Authorization: !secret kindbot_token
   kindbot_talking_start:
     url: "https://kindbot.your-domain.tld/api/mode/talking/start"
     method: POST

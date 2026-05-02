@@ -42,7 +42,11 @@ log = logging.getLogger("kindbot")
 
 # ----- State -----------------------------------------------------------------
 
-VALID_MODES = {"idle", "music", "cleaning", "talking"}
+VIDEO_MODES = {
+    "music", "cleaning", "chef", "gaming", "angry", "bandit",
+    "karate", "love", "party", "santa", "sleeping", "hot",
+}
+VALID_MODES = {"idle", "talking"} | VIDEO_MODES
 
 
 class FaceState:
@@ -221,20 +225,29 @@ async def stream(request: Request) -> EventSourceResponse:
 
 
 # ---- Mode endpoints (auth required) ----
+# Idle and talking are special; every entry in VIDEO_MODES gets a
+# POST /api/mode/<name> that flips into that mode.
 
 @api.post("/mode/idle", dependencies=[Depends(require_token)])
 async def mode_idle() -> dict:
     return await state.set_mode("idle")
 
 
-@api.post("/mode/music", dependencies=[Depends(require_token)])
-async def mode_music() -> dict:
-    return await state.set_mode("music")
+def _make_video_mode_handler(mode_name: str):
+    async def handler() -> dict:
+        return await state.set_mode(mode_name)
+    handler.__name__ = f"mode_{mode_name}"
+    return handler
 
 
-@api.post("/mode/cleaning", dependencies=[Depends(require_token)])
-async def mode_cleaning() -> dict:
-    return await state.set_mode("cleaning")
+for _mode in sorted(VIDEO_MODES):
+    api.add_api_route(
+        f"/mode/{_mode}",
+        _make_video_mode_handler(_mode),
+        methods=["POST"],
+        dependencies=[Depends(require_token)],
+        name=f"mode_{_mode}",
+    )
 
 
 @api.post("/mode/talking/start", dependencies=[Depends(require_token)])

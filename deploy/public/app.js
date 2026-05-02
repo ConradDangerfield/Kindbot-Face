@@ -5,10 +5,10 @@
 (function () {
   'use strict';
 
-  const MP4_SOURCES = {
-    music:    '/assets/mp4/music.mp4',
-    cleaning: '/assets/mp4/cleaning.mp4',
-  };
+  const MP4_SOURCES = (() => {
+    const modes = ['music','cleaning','chef','gaming','angry','bandit','karate','love','party','santa','sleeping','hot'];
+    return Object.fromEntries(modes.map((m) => [m, `/assets/mp4/${m}.mp4`]));
+  })();
 
   const stage = document.getElementById('stage');
   const dot = document.getElementById('dot');
@@ -143,17 +143,18 @@
     if (typeof next.mode === 'string') mode = next.mode;
     if (typeof next.listening === 'boolean') listening = next.listening;
 
+    const isVideoMode = Object.prototype.hasOwnProperty.call(MP4_SOURCES, mode);
     stage.className = ['stage',
       'mode-' + mode,
       listening ? 'is-listening' : '',
-      (mode === 'music' || mode === 'cleaning') ? 'video-on' : 'video-off',
+      isVideoMode ? 'video-on' : 'video-off',
     ].filter(Boolean).join(' ');
 
     hudMode.textContent = mode;
     if (listening) hudListening.removeAttribute('hidden');
     else hudListening.setAttribute('hidden', '');
 
-    if (mode === 'music' || mode === 'cleaning') {
+    if (isVideoMode) {
       const src = MP4_SOURCES[mode];
       if (video.getAttribute('src') !== src) {
         video.setAttribute('src', src);
