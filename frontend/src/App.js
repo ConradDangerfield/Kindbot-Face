@@ -313,14 +313,10 @@ function App() {
               <circle cx="20" cy="10" r="6" fill="#fff" />
             </g>
 
-            <g
-              id="mouth"
-              ref={mouthRef}
-              transform="translate(400, 310)"
-              className="mouth"
-              data-testid="mouth"
-            >
-              <rect x="-60" y="-18" width="120" height="36" rx="18" fill="#111" />
+            <g id="mouth" transform="translate(400, 310)" className="mouth" data-testid="mouth">
+              <g ref={mouthRef} className="mouth-scale">
+                <rect x="-60" y="-18" width="120" height="36" rx="18" fill="#111" />
+              </g>
             </g>
           </g>
         </svg>

@@ -17,7 +17,7 @@
   const video = document.getElementById('bg-video');
   const leftEye = document.getElementById('left_eye');
   const rightEye = document.getElementById('right_eye');
-  const mouth = document.getElementById('mouth');
+  const mouth = document.getElementById('mouth-inner');
 
   let mode = 'idle';
   let listening = false;

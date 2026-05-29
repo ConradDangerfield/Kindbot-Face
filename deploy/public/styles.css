@@ -94,7 +94,10 @@ html, body {
   100% { transform: translate(540px, 220px) scaleY(1); }
 }
 
-#mouth {
+/* Mouth scale: animated on the INNER <g class="mouth-scale">. The outer
+ * <g id="mouth"> keeps its SVG translate attribute untouched, so the scale
+ * always happens around the mouth's own centre — never the SVG origin. */
+.mouth-scale {
   transform-box: fill-box;
   transform-origin: center;
   transition: transform 90ms ease-out;
